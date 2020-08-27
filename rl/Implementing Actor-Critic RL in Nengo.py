@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[26]:
 
 
 get_ipython().run_line_magic('matplotlib', 'inline')
@@ -49,7 +49,7 @@ from dv import LegacyAedatFile
 
 # There's lots that can be explored about this.  In addition to the number of neurons, the learning rate, and the `tau_slow` and `tau_fast` parameters, there is also things like setting `neuron_type=nengo.RectifiedLinear()` or `neuron_type=nengo.Sigmoid()` when creating the `nengo.Ensemble` would use non-spiking neurons.  You can also try an actual delay rather than a low-pass filter by making use of the following `Delay` object and setting `tau_slow = Delay(0.01)`.  One other interesting thing to try is adjusting the sparsity in the neural network by setting `intercepts=nengo.dists.Uniform(0.6,1)` when creating the `nengo.Ensemble`.  
 
-# In[2]:
+# In[27]:
 
 
 # an implementation of a pure Delay synapse for nengo
@@ -108,7 +108,7 @@ class Delay(nengo.synapses.Synapse):
 # 
 # Do nothing send back a reward of 0, whereas recognizing a gesture either send back a positive reward if the choice is correct, or a negative reward if the choice is wrong.
 
-# In[3]:
+# In[28]:
 
 
 def load_gesture(user, gesture, packet_size):
@@ -152,24 +152,8 @@ class Environment:
         self.cursor = 0
         self.gesture = np.random.randint(2)
         self.events = self.all_events[self.gesture]
-        
-    def update(self, x): # update with 3 actions, the gesture changing when using action 2 and 3.
-        state = self.events[self.cursor]
-        if x[0] > 0: # We choose to do nothing and wait for more inputs
-            reward = 0
-        elif x[1] > 0: # We decide this is the 1st gesture
-            self.swap_gesture()
-            reward = 1 if self.gesture == 0 else -1
-        elif x[2] > 0: # We decide this is the 2nd gesture
-            self.swap_gesture()
-            reward = 1 if self.gesture == 1 else -1
-            
-        self.cursor += 1
-        if self.cursor > len(self.events):
-            self.cursor = 0
-        return *state.flatten(), reward
     
-    def update_2(self, x): # update with 2 actions, the gesture chaging only when all the events have been read.
+    def update(self, x): # update with 2 actions, the gesture chaging only when all the events have been read.
         state = self.events[self.cursor]
         self.cursor += 1
         reward = 0
@@ -182,11 +166,27 @@ class Environment:
             self.swap_gesture()
                 
         return *state.flatten(), reward
+    
+#    def update(self, x): # update with 3 actions, the gesture changing when using action 2 and 3.
+#        state = self.events[self.cursor]
+#        if x[0] > 0: # We choose to do nothing and wait for more inputs
+#            reward = 0
+#        elif x[1] > 0: # We decide this is the 1st gesture
+#            self.swap_gesture()
+#            reward = 1 if self.gesture == 0 else -1
+#        elif x[2] > 0: # We decide this is the 2nd gesture
+#            self.swap_gesture()
+#            reward = 1 if self.gesture == 1 else -1
+#            
+#        self.cursor += 1
+#        if self.cursor > len(self.events):
+#            self.cursor = 0
+#        return *state.flatten(), reward
 
 
 # And now let's re-create the Critic part of the model as well as the new Actor part.
 
-# In[9]:
+# In[38]:
 
 
 tau_slow = 0.01
@@ -196,17 +196,11 @@ discount = 0.95
 class Sizes:
     edge_dvs = 128
     edge_sptc = 32
-    pop_dvs = edge_dvs ** 2 * 2
+    pop_dvs = edge_dvs ** 2
     pop_sptc = edge_sptc ** 2
     actions = 2
 
 packet_size = 10000
-
-scaling_factor = Sizes.edge_dvs / Sizes.edge_sptc
-sptc = np.arange(Sizes.pop_sptc)
-sptc.resize(int(Sizes.edge_sptc), int(Sizes.edge_sptc))
-sptc = np.kron(sptc, np.ones((int(scaling_factor), int(scaling_factor))))
-sptc.resize(int(Sizes.pop_dvs / 2))
 
 environment = Environment(packet_size)
 model = nengo.Network()
@@ -216,7 +210,7 @@ with model:
     #   it has 16385 inputs: the first 16384 are the state made of the 128*128 pixels
     #   array mapped from the DVS sensor, and the last is the reward.
     #   there is 3 action possible, do nothing, recognize gesture 1 and recognize gesture 2.
-    env = nengo.Node(lambda t, x: environment.update_2(x), size_in=Sizes.actions, size_out=Sizes.pop_dvs+1)
+    env = nengo.Node(lambda t, x: environment.update(x), size_in=Sizes.actions, size_out=Sizes.pop_dvs+1)
     
     # set up some other Nodes that just grab the state and reward information,
     #  just for clarity
@@ -226,11 +220,12 @@ with model:
     nengo.Connection(env[-1], reward, synapse=None)
     
     # create the neural network to encode the state. The default is LIF neurons.
-    input_reduction = nengo.Ensemble(n_neurons=Sizes.pop_sptc, dimensions=Sizes.pop_dvs)
-    nengo.Connection(state, input_reduction, synapse=None, transform=Sizes.pop_sptc)
+    input_reduction = nengo.Ensemble(n_neurons=Sizes.pop_sptc, dimensions=Sizes.pop_sptc)
+    weights = np.ones((Sizes.pop_sptc , Sizes.pop_dvs))
+    nengo.Connection(state, input_reduction, synapse=None, transform=weights)
     
     # layer of LIF neurons to learn gesture differentiation.
-    learning_ens = nengo.Ensemble(n_neurons=100, dimensions=input_reduction.n_neurons)
+    learning_ens = nengo.Ensemble(n_neurons=128, dimensions=input_reduction.n_neurons)
     nengo.Connection(input_reduction, learning_ens, synapse=None)
     
     # this is the output value that the critic will learn
@@ -303,33 +298,33 @@ with model:
 
 # Now let's run the model and see what happens.
 
-# In[9]:
+# In[39]:
 
 
 sim = nengo.Simulator(model)
 
 
-# In[ ]:
+# In[40]:
 
 
-sim.run(1000)
+sim.run(100)
 
 
-# In[10]:
+# In[43]:
 
 
 plt.figure(figsize=(14,5))
 plt.plot(sim.trange(), sim.data[p_value], label='value')
-plt.plot(sim.trange(), sim.data[p_reward]/10, label='reward')
+plt.plot(sim.trange(), sim.data[p_reward]/1000, label='reward')
 plt.legend()
 plt.show()
 
 
-# In[14]:
+# In[45]:
 
 
 plt.figure(figsize=(14,5))
-plt.plot(sim.trange()[-100:], sim.data[p_reward][-100:], label='reward')
+plt.plot(sim.trange(), sim.data[p_reward], label='reward')
 plt.legend()
 plt.show()
 
