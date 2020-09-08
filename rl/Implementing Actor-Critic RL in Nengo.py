@@ -1,10 +1,8 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[26]:
+# In[1]:
 
-
-get_ipython().run_line_magic('matplotlib', 'inline')
 import nengo
 import numpy as np
 import matplotlib.pyplot as plt
@@ -49,7 +47,7 @@ from dv import LegacyAedatFile
 
 # There's lots that can be explored about this.  In addition to the number of neurons, the learning rate, and the `tau_slow` and `tau_fast` parameters, there is also things like setting `neuron_type=nengo.RectifiedLinear()` or `neuron_type=nengo.Sigmoid()` when creating the `nengo.Ensemble` would use non-spiking neurons.  You can also try an actual delay rather than a low-pass filter by making use of the following `Delay` object and setting `tau_slow = Delay(0.01)`.  One other interesting thing to try is adjusting the sparsity in the neural network by setting `intercepts=nengo.dists.Uniform(0.6,1)` when creating the `nengo.Ensemble`.  
 
-# In[27]:
+# In[2]:
 
 
 # an implementation of a pure Delay synapse for nengo
@@ -101,18 +99,18 @@ class Delay(nengo.synapses.Synapse):
 # 
 # (Note: This is known as the advantage actor-critic algorithm)
 # 
-# Let's add this to the nengo model.  We'll have to slightly modify the `Environment` so that it actually accepts an action choice.  We'll have three actions:
-# - Do nothing
+# Let's add this to the nengo model.  We'll have to slightly modify the `Environment` so that it actually accepts an action choice.  We'll have 2 actions:
+# 
 # - Recognize gesture 1
 # - Recognize gesture 2
 # 
-# Do nothing send back a reward of 0, whereas recognizing a gesture either send back a positive reward if the choice is correct, or a negative reward if the choice is wrong.
+# Recognizing a gesture either send back a positive reward if the choice is correct, or a negative reward if the choice is wrong.
 
-# In[28]:
+# In[3]:
 
 
 def load_gesture(user, gesture, packet_size):
-    with open("../DVS Gesture dataset/DvsGesture/user0"+str(user)+"_fluorescent_labels.csv", "r") as l:
+    with open("/home/thomas/apps/grill-eprop-lsnn/DVS Gesture dataset/DvsGesture/user0"+str(user)+"_fluorescent_labels.csv", "r") as l:
         for line in l:
             labels = line.split(",")
             if labels[0] == str(gesture):
@@ -120,9 +118,7 @@ def load_gesture(user, gesture, packet_size):
                 end = int(labels[2])
     
     events = []
-    with LegacyAedatFile("../DVS Gesture dataset/DvsGesture/user0"+str(user)+"_fluorescent.aedat") as f:
-#        for event in f:
-#            events.append([event.timestamp, event.x, event.y])   
+    with LegacyAedatFile("/home/thomas/apps/grill-eprop-lsnn/DVS Gesture dataset/DvsGesture/user0"+str(user)+"_fluorescent.aedat") as f: 
         i = 0
         cumul = 0
         eslice = np.zeros((128, 128))
@@ -186,7 +182,7 @@ class Environment:
 
 # And now let's re-create the Critic part of the model as well as the new Actor part.
 
-# In[38]:
+# In[21]:
 
 
 tau_slow = 0.01
@@ -200,6 +196,15 @@ class Sizes:
     pop_sptc = edge_sptc ** 2
     actions = 2
 
+weights = np.zeros((1024, 16384))
+k = 0
+for i in range(0, 128, 4):
+    for j in range(0, 128, 4):
+        temp = np.zeros((128, 128))
+        temp[i:i+4, j:j+4] = 1
+        weights[k] = temp.flatten()
+        k += 1
+    
 packet_size = 10000
 
 environment = Environment(packet_size)
@@ -209,7 +214,7 @@ with model:
     # create the environment
     #   it has 16385 inputs: the first 16384 are the state made of the 128*128 pixels
     #   array mapped from the DVS sensor, and the last is the reward.
-    #   there is 3 action possible, do nothing, recognize gesture 1 and recognize gesture 2.
+    #   there is 2 action possible, recognize gesture 1 and recognize gesture 2.
     env = nengo.Node(lambda t, x: environment.update(x), size_in=Sizes.actions, size_out=Sizes.pop_dvs+1)
     
     # set up some other Nodes that just grab the state and reward information,
@@ -221,7 +226,6 @@ with model:
     
     # create the neural network to encode the state. The default is LIF neurons.
     input_reduction = nengo.Ensemble(n_neurons=Sizes.pop_sptc, dimensions=Sizes.pop_sptc)
-    weights = np.ones((Sizes.pop_sptc , Sizes.pop_dvs))
     nengo.Connection(state, input_reduction, synapse=None, transform=weights)
     
     # layer of LIF neurons to learn gesture differentiation.
@@ -298,19 +302,19 @@ with model:
 
 # Now let's run the model and see what happens.
 
-# In[39]:
+# In[22]:
 
 
 sim = nengo.Simulator(model)
 
 
-# In[40]:
+# In[ ]:
 
 
 sim.run(100)
 
 
-# In[43]:
+# In[7]:
 
 
 plt.figure(figsize=(14,5))
@@ -320,13 +324,10 @@ plt.legend()
 plt.show()
 
 
-# In[45]:
+# In[12]:
 
 
-plt.figure(figsize=(14,5))
-plt.plot(sim.trange(), sim.data[p_reward], label='reward')
-plt.legend()
-plt.show()
+np.save("val_learning2", sim.data[p_value])
 
 
 # ## Things to explore
